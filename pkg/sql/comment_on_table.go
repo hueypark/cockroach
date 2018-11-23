@@ -16,14 +16,17 @@ package sql
 
 import (
 	"context"
-	"github.com/cockroachdb/cockroach/pkg/sql/privilege"
 
+	"github.com/cockroachdb/cockroach/pkg/keys"
+	"github.com/cockroachdb/cockroach/pkg/sql/privilege"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
+	"github.com/cockroachdb/cockroach/pkg/sql/sqlbase"
 )
 
 type commentOnTableNode struct {
 	n         *tree.CommentOnTable
 	tableDesc *MutableTableDescriptor
+	dbDesc    *sqlbase.DatabaseDescriptor
 }
 
 // CommentOnTable add comment on a table.
@@ -43,22 +46,44 @@ func (p *planner) CommentOnTable(ctx context.Context, n *tree.CommentOnTable) (p
 		return nil, err
 	}
 
-	return &commentOnTableNode{n: n, tableDesc: tableDesc}, nil
+	dbDesc, err := getDatabaseDescByID(
+		ctx,
+		p.Txn(),
+		tableDesc.ParentID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &commentOnTableNode{n: n, tableDesc: tableDesc, dbDesc: dbDesc}, nil
 }
 
 func (n *commentOnTableNode) startExec(params runParams) error {
-	n.tableDesc.Comment = n.n.Comment
+	h := makeOidHasher()
+	oid := h.TableOid(n.dbDesc, tree.PublicSchema, n.tableDesc.TableDesc())
 
-	mutationID, err := params.p.createSchemaChangeJob(
-		params.ctx,
-		n.tableDesc,
-		tree.AsStringWithFlags(n.n, tree.FmtAlwaysQualifyTableNames))
-	if err != nil {
-		return err
-	}
-
-	if err := params.p.writeSchemaChange(params.ctx, n.tableDesc, mutationID); err != nil {
-		return err
+	if n.n.Comment != nil {
+		_, err := params.p.extendedEvalCtx.ExecCfg.InternalExecutor.Exec(
+			params.ctx,
+			"upsert-comment",
+			params.p.Txn(),
+			"UPSERT INTO system.comments VALUES ($1, $2, 0, $3)",
+			keys.TableCommentType,
+			oid.DInt,
+			*n.n.Comment)
+		if err != nil {
+			return err
+		}
+	} else {
+		_, err := params.p.extendedEvalCtx.ExecCfg.InternalExecutor.Exec(
+			params.ctx,
+			"delete-comment",
+			params.p.Txn(),
+			"DELETE FROM system.comments WHERE type=$1 AND object_id=$2 AND sub_id=0",
+			keys.TableCommentType,
+			oid.DInt)
+		if err != nil {
+			return err
+		}
 	}
 
 	return MakeEventLogger(params.extendedEvalCtx.ExecCfg).InsertEventRecord(
@@ -68,16 +93,14 @@ func (n *commentOnTableNode) startExec(params runParams) error {
 		int32(n.tableDesc.ID),
 		int32(params.extendedEvalCtx.NodeID),
 		struct {
-			TableName  string
-			Statement  string
-			User       string
-			MutationID uint32
-			Comment    *string
+			TableName string
+			Statement string
+			User      string
+			Comment   *string
 		}{
 			n.n.Table.FQString(),
 			n.n.String(),
 			params.SessionData().User,
-			uint32(mutationID),
 			n.n.Comment},
 	)
 }

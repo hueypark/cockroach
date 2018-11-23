@@ -946,31 +946,27 @@ CREATE TABLE pg_catalog.pg_description (
 		p *planner,
 		dbContext *DatabaseDescriptor,
 		addRow func(...tree.Datum) error) error {
-		h := makeOidHasher()
-		return forEachTableDesc(
+
+		comments, _, err := p.extendedEvalCtx.ExecCfg.InternalExecutor.Query(
 			ctx,
-			p,
-			dbContext,
-			virtualMany,
-			func(db *sqlbase.DatabaseDescriptor, scName string, table *sqlbase.TableDescriptor) error {
-				var comment tree.Datum
-				if table.Comment != nil {
-					comment = tree.NewDName(*table.Comment)
-				} else {
-					comment = tree.DNull
-				}
+			"select-comments",
+			p.EvalContext().Txn,
+			"SELECT object_id, sub_id, comment FROM system.comments")
+		if err != nil {
+			return err
+		}
 
-				if err := addRow(
-					h.TableOid(db, scName, table), // oid
-					oidZero, // classoid
-					zeroVal, // objsubid
-					comment, //description
-				); err != nil {
-					return err
-				}
+		for _, comment := range comments {
+			if err := addRow(
+				tree.NewDOid(*comment[0].(*tree.DInt)),
+				oidZero,
+				comment[1],
+				comment[2]); err != nil {
+				return err
+			}
+		}
 
-				return nil
-			})
+		return nil
 	},
 }
 

@@ -725,11 +725,15 @@ var pgBuiltins = map[string]builtinDefinition{
 			Types:      tree.ArgTypes{{"object_oid", types.Oid}},
 			ReturnType: tree.FixedReturnType(types.String),
 			Fn: func(ctx *tree.EvalContext, args tree.Datums) (tree.Datum, error) {
-				oid := args[0]
+				oid, ok := args[0].(*tree.DOid)
+				if !ok {
+					return tree.DNull, nil
+				}
+
 				r, err := ctx.InternalExecutor.QueryRow(
 					ctx.Ctx(), "pg_get_objdesc",
 					ctx.Txn,
-					"SELECT description FROM pg_catalog.pg_description WHERE objoid=$1 LIMIT 1", oid)
+					"SELECT comment FROM system.comments WHERE object_id=$1 LIMIT 1", oid.DInt)
 				if err != nil {
 					return nil, err
 				}
