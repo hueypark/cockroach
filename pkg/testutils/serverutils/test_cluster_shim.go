@@ -49,8 +49,8 @@ type TestClusterInterface interface {
 	// The method blocks until a snapshot of the range has been copied to all the
 	// new replicas and the new replicas become part of the Raft group.
 	AddReplicas(
-		startKey roachpb.Key, targets ...roachpb.ReplicationTarget,
-	) (roachpb.RangeDescriptor, error)
+		kts ...KeyAndTargets,
+	) ([]roachpb.RangeDescriptor, error)
 
 	// AddReplicasOrFatal is the same as AddReplicas but will Fatal the test on
 	// error.
@@ -128,4 +128,10 @@ func StartTestCluster(t testing.TB, numNodes int, args base.TestClusterArgs) Tes
 			"from the package's TestMain()")
 	}
 	return clusterFactoryImpl.StartTestCluster(t, numNodes, args)
+}
+
+// KeyAndTargets contains replica startKey and targets.
+type KeyAndTargets struct {
+	StartKey roachpb.Key
+	Targets  []roachpb.ReplicationTarget
 }

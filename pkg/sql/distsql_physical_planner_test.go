@@ -60,32 +60,46 @@ func SplitTable(
 	t *testing.T,
 	tc serverutils.TestClusterInterface,
 	desc *sqlbase.TableDescriptor,
-	targetNodeIdx int,
-	vals ...interface{},
+	sps []SplitPoint,
 ) {
-	if tc.ReplicationMode() != base.ReplicationManual {
-		t.Fatal("SplitTable called on a test cluster that was not in manual replication mode")
-	}
+	for _, sp := range sps {
+		if tc.ReplicationMode() != base.ReplicationManual {
+			t.Fatal("SplitTable called on a test cluster that was not in manual replication mode")
+		}
 
-	pik, err := sqlbase.TestingMakePrimaryIndexKey(desc, vals...)
-	if err != nil {
-		t.Fatal(err)
-	}
+		pik, err := sqlbase.TestingMakePrimaryIndexKey(desc, sp.Vals)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	_, rightRange, err := tc.Server(0).SplitRange(pik)
-	if err != nil {
-		t.Fatal(err)
-	}
+		_, rightRange, err := tc.Server(0).SplitRange(pik)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	rightRangeStartKey := rightRange.StartKey.AsRawKey()
-	rightRange, err = tc.AddReplicas(rightRangeStartKey, tc.Target(targetNodeIdx))
-	if err != nil && !testutils.IsError(err, "is already present") {
-		t.Fatal(err)
-	}
+		rightRangeStartKey := rightRange.StartKey.AsRawKey()
+		target := tc.Target(sp.TargetNodeIdx)
 
-	if err := tc.TransferRangeLease(rightRange, tc.Target(targetNodeIdx)); err != nil {
-		t.Fatal(err)
+		descs, err := tc.AddReplicas(serverutils.KeyAndTargets{StartKey: rightRangeStartKey, Targets: []roachpb.ReplicationTarget{target}})
+		if len(descs) != 1 {
+			t.Fatalf(`unexpected result: %v; descs must be returns 1`, descs)
+		}
+		rightRange = descs[0]
+		if err != nil && !testutils.IsError(err, "is already present") {
+			t.Fatal(err)
+		}
+
+		if err := tc.TransferRangeLease(rightRange, target); err != nil {
+			t.Fatal(err)
+		}
 	}
+}
+
+// SplitPoint describes a split point that is passed to SplitTable.
+type SplitPoint struct {
+	// TargetNodeIdx is the node that will have the lease for the new range.
+	TargetNodeIdx int
+	Vals          []interface{}
 }
 
 // TestPlanningDuringSplits verifies that table reader planning (resolving
