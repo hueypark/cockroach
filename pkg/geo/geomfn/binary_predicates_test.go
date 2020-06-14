@@ -16,6 +16,7 @@ import (
 
 	"github.com/cockroachdb/cockroach/pkg/geo"
 	"github.com/stretchr/testify/require"
+	"github.com/twpayne/go-geom"
 )
 
 var (
@@ -28,6 +29,54 @@ var (
 	overlappingRightRect = geo.MustParseGeometry("POLYGON((-0.1 0.0, 1.0 0.0, 1.0 1.0, -0.1 1.0, -0.1 0.0))")
 	middleLine           = geo.MustParseGeometry("LINESTRING(-0.5 0.5, 0.5 0.5)")
 )
+
+func TestAzimuth(t *testing.T) {
+	testCases := []struct {
+		a           *geom.Point
+		b           *geom.Point
+		expected    float64
+		expectedErr error
+	}{
+		{
+			geom.NewPointFlat(geom.XY, []float64{0, 0}),
+			geom.NewPointFlat(geom.XY, []float64{0, 0}),
+			0,
+			fmt.Errorf("points are the same"),
+		},
+		{
+			geom.NewPointFlat(geom.XY, []float64{0, 0}),
+			geom.NewPointFlat(geom.XY, []float64{1, 1}),
+			0.7853981633974483, // math.Pi * 1 / 4
+			nil,
+		},
+		{
+			geom.NewPointFlat(geom.XY, []float64{0, 0}),
+			geom.NewPointFlat(geom.XY, []float64{1, 0}),
+			1.5707963267948966, // math.Pi * 2 / 4
+			nil,
+		},
+		{
+			geom.NewPointFlat(geom.XY, []float64{0, 0}),
+			geom.NewPointFlat(geom.XY, []float64{1, -1}),
+			2.356194490192344, // almost math.Pi * 3 / 4
+			nil,
+		},
+		{
+			geom.NewPointFlat(geom.XY, []float64{0, 0}),
+			geom.NewPointFlat(geom.XY, []float64{0, 1}),
+			0,
+			nil,
+		},
+	}
+
+	for i, tc := range testCases {
+		t.Run(fmt.Sprintf("tc:%d", i), func(t *testing.T) {
+			r, err := Azimuth(tc.a, tc.b)
+			require.Equal(t, tc.expected, r)
+			require.Equal(t, tc.expectedErr, err)
+		})
+	}
+}
 
 func TestCovers(t *testing.T) {
 	testCases := []struct {

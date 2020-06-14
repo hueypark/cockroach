@@ -11,9 +11,24 @@
 package geomfn
 
 import (
+	"fmt"
+	"math"
+
 	"github.com/cockroachdb/cockroach/pkg/geo"
 	"github.com/cockroachdb/cockroach/pkg/geo/geos"
+	"github.com/twpayne/go-geom"
 )
+
+// Azimuth returns the azimuth in radians of the segment defined by the given point geometries.
+// The azimuth is angle is referenced from north, and is positive clockwise.
+// North = 0; East = π/2; South = π; West = 3π/2.
+func Azimuth(a *geom.Point, b *geom.Point) (float64, error) {
+	if a.X() == b.X() && a.Y() == b.Y() {
+		return 0, fmt.Errorf("points are the same")
+	}
+
+	return math.Mod(2*math.Pi+math.Pi/2-math.Atan2(b.Y()-a.Y(), b.X()-a.X()), 2*math.Pi), nil
+}
 
 // Covers returns whether geometry A covers geometry B.
 func Covers(a *geo.Geometry, b *geo.Geometry) (bool, error) {
